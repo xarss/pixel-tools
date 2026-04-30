@@ -6,7 +6,7 @@ import PaletteGenerator from "@/pages/palette-generator"
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/pixel-tools">
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<Home />} />

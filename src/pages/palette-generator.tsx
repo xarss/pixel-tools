@@ -152,9 +152,9 @@ export default function PaletteGenerator() {
       setTooManyOpen(true)
       return
     }
-    setColors(prev =>
-      Array.from(new Set([...prev, ...unique])).slice(0, MAX_COLORS)
-    )
+    setColors(prev => Array.from(new Set([...prev, ...unique])).slice(0, MAX_COLORS))
+    const next = Array.from(new Set([...colors, ...unique])).slice(0, MAX_COLORS)
+    if (next.length >= 2) setOpenSections(['settings'])
   }
 
   function addColors(newColors: string[]) {
@@ -228,7 +228,10 @@ export default function PaletteGenerator() {
     setPasteError(null)
     try {
       if (isLospecUrl(value)) {
-        addColors(await fetchLospecColors(value))
+        const loaded = await fetchLospecColors(value)
+        const next = Array.from(new Set([...colors, ...loaded])).slice(0, MAX_COLORS)
+        setColors(next)
+        if (next.length >= 2) setOpenSections(['settings'])
       } else if (/^https?:\/\//i.test(value)) {
         addColorsFromImage(await extractColorsFromImageUrl(value))
       } else {

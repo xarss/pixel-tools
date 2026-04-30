@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ImageIcon, UploadIcon } from 'lucide-react'
+import { DownloadIcon, ImageIcon, UploadIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import ToolLayout from '@/layouts/tool-layout'
@@ -277,6 +277,15 @@ export default function PaletteGenerator() {
   function handleSelectFont(font: FontEntry) {
     setSelectedFont(font.name)
     setActiveGlyphs(font.glyphs)
+  }
+
+  function handleDownloadPalette() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const a = document.createElement('a')
+    a.href = canvas.toDataURL('image/png')
+    a.download = 'palette.png'
+    a.click()
   }
 
   function handleDownloadDefaultFont() {
@@ -557,7 +566,7 @@ export default function PaletteGenerator() {
                   className="flex-1"
                   onClick={handleDownloadDefaultFont}
                 >
-                  Download
+                  Download Template
                 </Button>
               </div>
               <input
@@ -586,14 +595,23 @@ export default function PaletteGenerator() {
               </p>
             </div>
           ) : (
-            <canvas
-              ref={canvasRef}
-              style={{
-                imageRendering: 'pixelated',
-                width: canvasDims.width * previewScale,
-                height: canvasDims.height * previewScale,
-              }}
-            />
+            <div className="relative">
+              <canvas
+                ref={canvasRef}
+                style={{
+                  imageRendering: 'pixelated',
+                  width: canvasDims.width * previewScale,
+                  height: canvasDims.height * previewScale,
+                }}
+              />
+              <button
+                onClick={handleDownloadPalette}
+                title="Download PNG"
+                className="absolute right-2 bottom-2 rounded-sm bg-black/40 p-1.5 text-white hover:bg-black/60 focus:outline-none"
+              >
+                <DownloadIcon className="size-3.5" />
+              </button>
+            </div>
           )}
         </div>
       </ToolLayout>

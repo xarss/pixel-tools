@@ -138,6 +138,5 @@
     }
   html {
     @apply font-mono;
-    font-size: 24px;
     }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { DownloadIcon, ImageIcon, UploadIcon } from 'lucide-react'
+import { DownloadIcon, GripVerticalIcon, ImageIcon, Link2Icon, PlusIcon, UploadIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import ToolLayout from '@/layouts/tool-layout'
@@ -39,6 +39,39 @@ import {
 interface FontEntry {
   name: string
   glyphs: GlyphTable
+}
+
+function hexToRgb(hex: string) {
+  return {
+    r: parseInt(hex.slice(1, 3), 16),
+    g: parseInt(hex.slice(3, 5), 16),
+    b: parseInt(hex.slice(5, 7), 16),
+  }
+}
+
+function getHue(hex: string): number {
+  const { r: ri, g: gi, b: bi } = hexToRgb(hex)
+  const r = ri / 255, g = gi / 255, b = bi / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  if (max === min) return 0
+  const d = max - min
+  if (max === r) return (((g - b) / d + (g < b ? 6 : 0)) / 6) * 360
+  if (max === g) return (((b - r) / d + 2) / 6) * 360
+  return (((r - g) / d + 4) / 6) * 360
+}
+
+function getBrightness(hex: string): number {
+  const { r, g, b } = hexToRgb(hex)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+}
+
+function getLuminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex)
+  const linear = (v: number) => {
+    const n = v / 255
+    return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4)
+  }
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
 }
 
 function ColorSwatch({
@@ -101,8 +134,10 @@ export default function PaletteGenerator() {
   const [pasteError, setPasteError] = useState<string | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadLoading, setUploadLoading] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
+  const [fileDragOver, setFileDragOver] = useState(false)
   const [tooManyOpen, setTooManyOpen] = useState(false)
+  const [pasteUrlOpen, setPasteUrlOpen] = useState(false)
+  const [addManualOpen, setAddManualOpen] = useState(false)
   const [openSections, setOpenSections] = useState<string[]>(['colors'])
   const [availableFonts, setAvailableFonts] = useState<FontEntry[]>([
     { name: 'Built-in', glyphs: DEFAULT_GLYPHS },
@@ -114,19 +149,19 @@ export default function PaletteGenerator() {
   const [textColor, setTextColor] = useState<string | null>(null)
   const [canvasDims, setCanvasDims] = useState({ width: 0, height: 0 })
   const [previewScale, setPreviewScale] = useState(8)
+  const [paletteDraggedIndex, setPaletteDraggedIndex] = useState<number | null>(null)
+  const [paletteDragOverIndex, setPaletteDragOverIndex] = useState<number | null>(null)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fontInputRef = useRef<HTMLInputElement>(null)
 
-  // Reset bg/text color if the chosen color is removed from palette
   useEffect(() => {
     setBgColor(prev => (prev && !colors.includes(prev) ? null : prev))
     setTextColor(prev => (prev && !colors.includes(prev) ? null : prev))
   }, [colors])
 
-  // Redraw canvas when colors or color settings change
   useEffect(() => {
     if (!canvasRef.current || colors.length === 0) return
     const bg = bgColor ?? colors[0]
@@ -139,7 +174,6 @@ export default function PaletteGenerator() {
     setPreviewScale(Math.max(2, Math.min(12, Math.floor(containerW / cw))))
   }, [colors, bgColor, textColor, activeGlyphs])
 
-  // Collapse Settings when palette drops below 2 colors
   useEffect(() => {
     if (colors.length < 2) {
       setOpenSections(prev => prev.filter(s => s !== 'settings'))
@@ -171,7 +205,7 @@ export default function PaletteGenerator() {
     setColors([])
   }
 
-  async function processImageBlob(blob: Blob, fromUpload: boolean) {
+  async function processImageBlob(blob: Blob, fromUpload: boolean, onSuccess?: () => void) {
     if (fromUpload) {
       setUploadLoading(true)
       setUploadError(null)
@@ -182,6 +216,7 @@ export default function PaletteGenerator() {
     try {
       const extracted = await extractColorsFromBlob(blob)
       addColorsFromImage(extracted)
+      onSuccess?.()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to read image'
       if (fromUpload) setUploadError(msg)
@@ -198,26 +233,15 @@ export default function PaletteGenerator() {
     e.target.value = ''
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+  function handleFileDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    setDragOver(false)
+    setFileDragOver(false)
     const file = e.dataTransfer.files?.[0]
     if (!file) return
     if (file.type.startsWith('image/')) {
       void processImageBlob(file, true)
     } else {
       setUploadError('Unsupported file type. Please upload an image file.')
-    }
-  }
-
-  function handlePasteEvent(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const imageItem = Array.from(e.clipboardData.items).find(item =>
-      item.type.startsWith('image/')
-    )
-    if (imageItem) {
-      e.preventDefault()
-      const blob = imageItem.getAsFile()
-      if (blob) void processImageBlob(blob, false)
     }
   }
 
@@ -241,6 +265,7 @@ export default function PaletteGenerator() {
         return
       }
       setPasteValue('')
+      setPasteUrlOpen(false)
     } catch (err) {
       setPasteError(err instanceof Error ? err.message : 'Failed to load')
     } finally {
@@ -258,6 +283,7 @@ export default function PaletteGenerator() {
     addColors(manualPreview)
     setManualInput('')
     setManualPreview([])
+    setAddManualOpen(false)
   }
 
   async function handleFontUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -282,13 +308,30 @@ export default function PaletteGenerator() {
     setActiveGlyphs(font.glyphs)
   }
 
+  function fallbackDownload(blob: Blob) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'palette.png'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function handleDownloadPalette() {
     const canvas = canvasRef.current
     if (!canvas) return
-    const a = document.createElement('a')
-    a.href = canvas.toDataURL('image/png')
-    a.download = 'palette.png'
-    a.click()
+    canvas.toBlob(blob => {
+      if (!blob) return
+      if (navigator.share) {
+        const file = new File([blob], 'palette.png', { type: 'image/png' })
+        void navigator.share({ files: [file], title: 'Palette' }).catch((err: unknown) => {
+          if (err instanceof Error && err.name === 'AbortError') return
+          fallbackDownload(blob)
+        })
+      } else {
+        fallbackDownload(blob)
+      }
+    })
   }
 
   function handleDownloadDefaultFont() {
@@ -297,6 +340,20 @@ export default function PaletteGenerator() {
     a.href = dataUrl
     a.download = `${selectedFont.toLowerCase().replace(/\s+/g, '-')}.png`
     a.click()
+  }
+
+  function handlePaletteReorder(targetIndex: number) {
+    if (paletteDraggedIndex === null || paletteDraggedIndex === targetIndex) {
+      setPaletteDraggedIndex(null)
+      setPaletteDragOverIndex(null)
+      return
+    }
+    const newColors = [...colors]
+    const [removed] = newColors.splice(paletteDraggedIndex, 1)
+    newColors.splice(targetIndex, 0, removed)
+    setColors(newColors)
+    setPaletteDraggedIndex(null)
+    setPaletteDragOverIndex(null)
   }
 
   const effectiveBg = bgColor ?? colors[0] ?? '#000000'
@@ -316,43 +373,49 @@ export default function PaletteGenerator() {
         </AccordionTrigger>
         <AccordionContent className="h-auto">
           <div className="space-y-5">
-            {/* Upload */}
+            {/* Add from image — upload + paste URL */}
             <section className="space-y-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Upload image
+                Add from image or link
               </p>
               <div
-                role="button"
-                tabIndex={0}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded border border-dashed p-4 text-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                  dragOver
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-primary/50',
-                  uploadLoading && 'pointer-events-none opacity-50'
+                  'grid grid-cols-2 gap-2 rounded border border-dashed p-2 transition-colors',
+                  fileDragOver ? 'border-primary bg-primary/5' : 'border-border'
                 )}
-                onClick={() => fileInputRef.current?.click()}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ')
-                    fileInputRef.current?.click()
-                }}
                 onDragOver={e => {
                   e.preventDefault()
-                  setDragOver(true)
+                  if (e.dataTransfer.types.includes('Files')) setFileDragOver(true)
                 }}
                 onDragEnter={e => {
                   e.preventDefault()
-                  setDragOver(true)
+                  if (e.dataTransfer.types.includes('Files')) setFileDragOver(true)
                 }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
+                onDragLeave={() => setFileDragOver(false)}
+                onDrop={handleFileDrop}
               >
-                <UploadIcon className="size-4 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">
-                  {uploadLoading
-                    ? 'Reading colors…'
-                    : 'Drop an image or click to browse'}
-                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadLoading}
+                >
+                  <UploadIcon className="size-3.5" />
+                  {uploadLoading ? 'Reading…' : 'Upload'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setPasteError(null)
+                    setPasteUrlOpen(true)
+                  }}
+                >
+                  <Link2Icon className="size-3.5" />
+                  Clipboard
+                </Button>
               </div>
               {uploadError && (
                 <p className="text-[11px] text-destructive">{uploadError}</p>
@@ -366,71 +429,20 @@ export default function PaletteGenerator() {
               />
             </section>
 
-            {/* Paste URL or image */}
-            <section className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Paste URL or image
-              </p>
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Accepts an image URL, or a Lospec palette URL (e.g.{' '}
-                <span className="font-mono">lospec.com/palette-list/…</span>).
-                You can also paste an image directly from your clipboard.
-              </p>
-              <textarea
-                className="h-14 w-full resize-none rounded border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                placeholder="https://lospec.com/palette-list/..."
-                value={pasteValue}
-                onChange={e => setPasteValue(e.target.value)}
-                onPaste={handlePasteEvent}
-              />
-              {pasteError && (
-                <p className="text-[11px] text-destructive">{pasteError}</p>
-              )}
+            {/* Add manually */}
+            <section>
               <Button
                 size="sm"
                 variant="outline"
                 className="w-full"
-                onClick={() => void handleLoadUrl()}
-                disabled={!pasteValue.trim() || pasteLoading}
+                onClick={() => {
+                  setManualInput('')
+                  setManualPreview([])
+                  setAddManualOpen(true)
+                }}
               >
-                {pasteLoading ? 'Loading…' : 'Load'}
-              </Button>
-            </section>
-
-            {/* Manual hex input */}
-            <section className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Manual hex input
-              </p>
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                Enter hex values separated by{' '}
-                <span className="font-mono">,</span> or{' '}
-                <span className="font-mono">;</span>. Works with or without{' '}
-                <span className="font-mono">#</span>.
-              </p>
-              <textarea
-                className="h-14 w-full resize-none rounded border border-input bg-background px-2 py-1.5 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                placeholder="ff0000, 00ff00; #0000ff"
-                value={manualInput}
-                onChange={e => handleManualInputChange(e.target.value)}
-              />
-              {manualPreview.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {manualPreview.map(color => (
-                    <ColorSwatch key={color} color={color} />
-                  ))}
-                </div>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full"
-                onClick={handleAddManual}
-                disabled={newManualCount === 0}
-              >
-                {newManualCount > 0
-                  ? `Add ${newManualCount} color${newManualCount !== 1 ? 's' : ''}`
-                  : 'Add colors'}
+                <PlusIcon className="size-3.5" />
+                Add colors manually
               </Button>
             </section>
 
@@ -448,14 +460,105 @@ export default function PaletteGenerator() {
                     Clear all
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {colors.map(color => (
-                    <ColorSwatch
-                      key={color}
-                      color={color}
-                      onRemove={() => removeColor(color)}
-                    />
-                  ))}
+                {/* Sort buttons */}
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 flex-1 px-2 text-[10px]"
+                    onClick={() =>
+                      setColors(prev => [...prev].sort((a, b) => getHue(a) - getHue(b)))
+                    }
+                  >
+                    Hue
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 flex-1 px-2 text-[10px]"
+                    onClick={() =>
+                      setColors(prev =>
+                        [...prev].sort((a, b) => getBrightness(a) - getBrightness(b))
+                      )
+                    }
+                  >
+                    Brightness
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 flex-1 px-2 text-[10px]"
+                    onClick={() =>
+                      setColors(prev =>
+                        [...prev].sort((a, b) => getLuminance(a) - getLuminance(b))
+                      )
+                    }
+                  >
+                    Luminance
+                  </Button>
+                </div>
+                {/* Draggable color grid */}
+                <div className="grid grid-cols-2 gap-1">
+                  {colors.map((color, index) => {
+                    const isOddLast =
+                      index === colors.length - 1 && colors.length % 2 === 1
+                    return (
+                      <div
+                        key={color}
+                        draggable
+                        onDragStart={e => {
+                          e.dataTransfer.effectAllowed = 'move'
+                          setPaletteDraggedIndex(index)
+                        }}
+                        onDragOver={e => {
+                          e.preventDefault()
+                          e.dataTransfer.dropEffect = 'move'
+                          setPaletteDragOverIndex(index)
+                        }}
+                        onDrop={e => {
+                          e.preventDefault()
+                          handlePaletteReorder(index)
+                        }}
+                        onDragEnd={() => {
+                          setPaletteDraggedIndex(null)
+                          setPaletteDragOverIndex(null)
+                        }}
+                        className={cn(
+                          'flex',
+                          isOddLast && 'col-span-2 justify-center',
+                          paletteDragOverIndex === index &&
+                            paletteDraggedIndex !== index &&
+                            'rounded ring-1 ring-primary ring-offset-1'
+                        )}
+                      >
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'h-6 cursor-grab gap-1 pl-1 font-mono text-[10px] active:cursor-grabbing',
+                            !isOddLast && 'w-full',
+                            paletteDraggedIndex === index && 'opacity-50'
+                          )}
+                        >
+                          <GripVerticalIcon className="size-2.5 shrink-0 text-muted-foreground/40" />
+                          <span
+                            className="inline-block size-3 shrink-0 rounded-sm border border-border/40"
+                            style={{ backgroundColor: color }}
+                          />
+                          <span className="flex-1">{color}</span>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation()
+                              removeColor(color)
+                            }}
+                            className="ml-0.5 leading-none opacity-40 hover:opacity-80 focus:outline-none"
+                            aria-label={`Remove ${color}`}
+                          >
+                            ×
+                          </button>
+                        </Badge>
+                      </div>
+                    )
+                  })}
                 </div>
               </section>
             )}
@@ -476,10 +579,7 @@ export default function PaletteGenerator() {
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Background
                 </p>
-                <span
-                  className="font-mono text-[10px] text-muted-foreground"
-                  style={{ color: undefined }}
-                >
+                <span className="font-mono text-[10px] text-muted-foreground">
                   {effectiveBg}
                 </span>
               </div>
@@ -609,7 +709,7 @@ export default function PaletteGenerator() {
               />
               <button
                 onClick={handleDownloadPalette}
-                title="Download PNG"
+                title="Save to photos / Download PNG"
                 className="absolute right-2 bottom-2 rounded-sm bg-black/40 p-1.5 text-white hover:bg-black/60 focus:outline-none"
               >
                 <DownloadIcon className="size-3.5" />
@@ -619,6 +719,7 @@ export default function PaletteGenerator() {
         </div>
       </ToolLayout>
 
+      {/* Too many colors */}
       <Dialog open={tooManyOpen} onOpenChange={setTooManyOpen}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
@@ -631,6 +732,114 @@ export default function PaletteGenerator() {
           </DialogHeader>
           <DialogFooter>
             <Button onClick={() => setTooManyOpen(false)}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Paste URL */}
+      <Dialog
+        open={pasteUrlOpen}
+        onOpenChange={open => {
+          if (!open) setPasteError(null)
+          setPasteUrlOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Paste URL or image</DialogTitle>
+            <DialogDescription>
+              Enter an image URL or Lospec palette URL (e.g.{' '}
+              <span className="font-mono">lospec.com/palette-list/…</span>).
+              You can also paste an image directly from your clipboard.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <textarea
+              className="h-16 w-full resize-none rounded border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="https://lospec.com/palette-list/..."
+              value={pasteValue}
+              onChange={e => setPasteValue(e.target.value)}
+              onPaste={e => {
+                const imageItem = Array.from(e.clipboardData.items).find(item =>
+                  item.type.startsWith('image/')
+                )
+                if (imageItem) {
+                  e.preventDefault()
+                  const blob = imageItem.getAsFile()
+                  if (blob) {
+                    void processImageBlob(blob, false, () => {
+                      setPasteUrlOpen(false)
+                      setPasteValue('')
+                    })
+                  }
+                }
+              }}
+              autoFocus
+            />
+            {pasteError && (
+              <p className="text-[11px] text-destructive">{pasteError}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasteUrlOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleLoadUrl()}
+              disabled={!pasteValue.trim() || pasteLoading}
+            >
+              {pasteLoading ? 'Loading…' : 'Load'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add colors manually */}
+      <Dialog
+        open={addManualOpen}
+        onOpenChange={open => {
+          if (!open) {
+            setManualInput('')
+            setManualPreview([])
+          }
+          setAddManualOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add colors manually</DialogTitle>
+            <DialogDescription>
+              Enter hex values separated by{' '}
+              <span className="font-mono">,</span> or{' '}
+              <span className="font-mono">;</span>. Works with or without{' '}
+              <span className="font-mono">#</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <textarea
+              className="h-16 w-full resize-none rounded border border-input bg-background px-2 py-1.5 font-mono text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="ff0000, 00ff00; #0000ff"
+              value={manualInput}
+              onChange={e => handleManualInputChange(e.target.value)}
+              autoFocus
+            />
+            {manualPreview.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {manualPreview.map(color => (
+                  <ColorSwatch key={color} color={color} />
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddManualOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddManual} disabled={newManualCount === 0}>
+              {newManualCount > 0
+                ? `Add ${newManualCount} color${newManualCount !== 1 ? 's' : ''}`
+                : 'Add colors'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

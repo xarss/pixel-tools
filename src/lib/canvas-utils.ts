@@ -169,6 +169,7 @@ export function drawPalette(
 
   const nTop = Math.ceil(N / 2)
   const nBottom = Math.floor(N / 2)
+  const bottomOffset = N % 2 === 1 ? (RECT_W + HORIZ_GAP) / 2 : 0
 
   canvas.width =
     SIDE_MARGIN * 2 + nTop * RECT_W + Math.max(0, nTop - 1) * HORIZ_GAP
@@ -188,7 +189,7 @@ export function drawPalette(
   }
 
   for (let j = 0; j < nBottom; j++) {
-    const x = SIDE_MARGIN + j * (RECT_W + HORIZ_GAP)
+    const x = SIDE_MARGIN + bottomOffset + j * (RECT_W + HORIZ_GAP)
     ctx.fillStyle = colors[nTop + j]
     ctx.fillRect(x, BOT_RECT_Y, RECT_W, RECT_H)
     drawHexLabel(ctx, colors[nTop + j], x, BOT_TEXT_Y, textColor, glyphs)
